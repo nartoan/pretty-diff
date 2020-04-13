@@ -1,71 +1,134 @@
 #!/usr/bin/env node
 
-var fs = require( "fs" );
-var path = require( "path" );
-var os = require( "os" );
-var open = require( "open" );
-var diff = require( "./diff" );
+var fs = require("fs");
+var path = require("path");
+var os = require("os");
+var open = require("open");
+var diff = require("./diff");
 
-diff( process.argv.slice( 2 ).join( " " ), function( error, parsedDiff ) {
-	if ( error ) {
+var startsWith = function (str, search, rawPos) {
+	var pos = rawPos > 0 ? rawPos | 0 : 0;
+	return str.substring(pos, pos + search.length) === search;
+}
 
+diff(process.argv.slice(2).join(" "), function (error, parsedDiff) {
+	if (error) {
 		// Usage error, assume we're not in a git directory
-		if ( error.code === 129 ) {
-			process.stderr.write( "Error: Not a git repository\n" );
+		if (error.code === 129) {
+			process.stderr.write("Error: Not a git repository\n");
 			return;
 		}
 
-		process.stderr.write( error.message );
+		process.stderr.write(error.message);
 		return;
 	}
 
-	if ( !parsedDiff ) {
-		console.log( "No differences" );
+	if (!parsedDiff) {
+		console.log("No differences");
 		return;
 	}
 
-	generatePrettyDiff( parsedDiff );
+	generatePrettyDiff(parsedDiff);
 });
 
-function generatePrettyDiff( parsedDiff ) {
-	var template = fs.readFileSync( __dirname + "/template.html", "utf8" );
+function generatePrettyDiff(parsedDiff) {
+	var template = fs.readFileSync(__dirname + "/template.html", "utf8");
 	var diffHtml = "";
-	var tempPath = path.join( os.tmpdir(), "diff.html" );
+	var tempPath = path.join(os.tmpdir(), "diff.html");
 
-	for ( var file in parsedDiff ) {
+	for (var file in parsedDiff) {
 		diffHtml += "<h2>" + file + "</h2>" +
-		"<div class='file-diff'><div>" +
-			markUpDiff( parsedDiff[ file ] ) +
-		"</div></div>";
+			"<div class='file-diff'><div>" +
+			markUpDiff(parsedDiff[file]) +
+			"</div></div>";
 	}
 
-	fs.writeFileSync( tempPath, template.replace( "{{diff}}", diffHtml ) );
-	open( tempPath );
+	fs.writeFileSync(tempPath, template.replace("{{diff}}", diffHtml));
+	open(tempPath);
 }
 
-var markUpDiff = function() {
-	var diffClasses = {
-		"d": "file",
-		"i": "file",
-		"@": "info",
-		"-": "delete",
-		"+": "insert",
-		" ": "context"
+var diffClasses = {
+	"d": "file",
+	"i": "file",
+	"@": "info",
+	"-": "delete",
+	"+": "insert",
+	" ": "context"
+};
+
+function escape(str) {
+	return str
+		.replace(/\$/g, "$$$$")
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/\t/g, "    ");
+}
+
+var markUpDiff = function (diff) {
+	if (diff.indexOf("--- /dev/null") !== -1) {
+		{
+			return "";
+		}
 	};
 
-	function escape( str ) {
-		return str
-			.replace( /\$/g, "$$$$" )
-			.replace( /&/g, "&amp;" )
-			.replace( /</g, "&lt;" )
-			.replace( />/g, "&gt;" )
-			.replace( /\t/g, "    " );
-	}
+	var dataDiff = [];
+	var localDiff = [];
 
-	return function( diff ) {
-		return diff.map(function( line ) {
-			var type = line.charAt( 0 );
-			return "<pre class='" + diffClasses[ type ] + "'>" + escape( line ) + "</pre>";
-		}).join( "\n" );
-	};
-}();
+	var isRevCorrect = true;
+	var isWaitClose = false;
+
+	diff.forEach(function (line, index) {
+		var type = line.charAt(0);
+		localDiff.push("<pre class='" + diffClasses[type] + "'>" + escape(line) + "</pre>");
+
+		// Xóa trực tiếp
+		//  && line === "\ No newline at end of file"
+		if (startsWith(line, "-") && isWaitClose === false &&
+			(
+				diff[index + 1] ||
+				!startsWith(diff[index + 1], "+") && !startsWith(diff[index + 1], "-")
+			)) {
+			isRevCorrect = false;
+		}
+
+		// Đầu thêm
+		if (startsWith(line, "+") && !startsWith(diff[index - 1], "+")) {
+			var regexRev = /\/\/\s*Rev\s*[0-9]{2}\.[0-9]{2}\.[0-9]{2}\s*s/g;
+			if (!regexRev.test(line)) {
+				isRevCorrect = false;
+			}
+			isWaitClose = true;
+		}
+
+		// Đầu end
+		if (startsWith(line, "+") &&
+			(
+				diff[index + 1] === undefined ||
+				!startsWith(diff[index + 1], "+")
+			)) {
+			// Đầu thêm đã bị lỗi => lỗi luôn
+			if (isRevCorrect === false) {
+				isWaitClose = false;
+				return;
+			}
+
+			// Đầu thêm chưa bị lỗi
+			var regexRev = /\/\/\s*Rev\s*[0-9]{2}\.[0-9]{2}\.[0-9]{2}\s*e/g;
+			if (!regexRev.test(line)) {
+				isRevCorrect = false;
+			} else {
+				localDiff = [];
+			}
+			isWaitClose = false;
+		}
+
+		if (isRevCorrect === false && isWaitClose === false) {
+			dataDiff = [...dataDiff, ...localDiff];
+			isRevCorrect = true;
+			localDiff = [];
+		}
+	});
+
+	return dataDiff.join("\n");
+};
