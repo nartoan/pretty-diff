@@ -11,6 +11,10 @@ var startsWith = function (str, search, rawPos) {
 	return str.substring(pos, pos + search.length) === search;
 }
 
+var endsWith = function (str, search) {
+	return str.indexOf(search, str.length - search.length) !== -1;;
+}
+
 diff(process.argv.slice(2).join(" "), function (error, parsedDiff) {
 	if (error) {
 		// Usage error, assume we're not in a git directory
@@ -37,6 +41,7 @@ function generatePrettyDiff(parsedDiff) {
 	var tempPath = path.join(os.tmpdir(), "diff.html");
 
 	for (var file in parsedDiff) {
+		if (endsWith(file,".js"))
 		diffHtml += "<h2>" + file + "</h2>" +
 			"<div class='file-diff'><div>" +
 			markUpDiff(parsedDiff[file]) +
@@ -78,7 +83,12 @@ var markUpDiff = function (diff) {
 	var isRevCorrect = true;
 	var isWaitClose = false;
 
-	diff.forEach(function (line, index) {
+  const newDiff =  diff
+  .filter(line => {
+    return !(line.trim() === "+" || line.trim() === "-");
+  });
+
+  newDiff.forEach(function (line, index) {
 		var type = line.charAt(0);
 		localDiff.push("<pre class='" + diffClasses[type] + "'>" + escape(line) + "</pre>");
 
@@ -86,41 +96,40 @@ var markUpDiff = function (diff) {
 		//  && line === "\ No newline at end of file"
 		if (startsWith(line, "-") && isWaitClose === false &&
 			(
-				diff[index + 1] ||
-				!startsWith(diff[index + 1], "+") && !startsWith(diff[index + 1], "-")
+				newDiff[index + 1] === undefined ||
+				(!startsWith(newDiff[index + 1], "+") && !startsWith(newDiff[index + 1], "-"))
 			)) {
 			isRevCorrect = false;
 		}
 
 		// Đầu thêm
-		if (startsWith(line, "+") && !startsWith(diff[index - 1], "+")) {
-			var regexRev = /\/\/\s*Rev\s*[0-9]{2}\.[0-9]{2}\.[0-9]{2}\s*s/g;
+		if (startsWith(line, "+") && !startsWith(newDiff[index - 1], "+")) {
+      var regexRev = /\/\/\s*Rev\s*[0-9]{2}\.[0-9]{2}\.[0-9]{2}.*\s*s/g;
 			if (!regexRev.test(line)) {
 				isRevCorrect = false;
 			}
 			isWaitClose = true;
-		}
-
-		// Đầu end
+    }
+    
+    // Đầu end
 		if (startsWith(line, "+") &&
 			(
-				diff[index + 1] === undefined ||
-				!startsWith(diff[index + 1], "+")
+				newDiff[index + 1] === undefined ||
+				!startsWith(newDiff[index + 1], "+")
 			)) {
 			// Đầu thêm đã bị lỗi => lỗi luôn
 			if (isRevCorrect === false) {
 				isWaitClose = false;
-				return;
-			}
-
-			// Đầu thêm chưa bị lỗi
-			var regexRev = /\/\/\s*Rev\s*[0-9]{2}\.[0-9]{2}\.[0-9]{2}\s*e/g;
-			if (!regexRev.test(line)) {
-				isRevCorrect = false;
 			} else {
-				localDiff = [];
-			}
-			isWaitClose = false;
+        // Đầu thêm chưa bị lỗi
+        var regexRev = /\/\/\s*Rev\s*[0-9]{2}\.[0-9]{2}\.[0-9]{2}.*\s*e/g;
+        if (!regexRev.test(line)) {
+          isRevCorrect = false;
+        } else {
+          localDiff = [];
+        }
+        isWaitClose = false;
+      }
 		}
 
 		if (isRevCorrect === false && isWaitClose === false) {
@@ -130,5 +139,5 @@ var markUpDiff = function (diff) {
 		}
 	});
 
-	return dataDiff.join("\n");
+  return dataDiff.join("\n");
 };

@@ -4,11 +4,11 @@ module.exports = function( args, fn ) {
 	var stdout = "";
 	var stderr = "";
 
-	var childArgs = [ "diff", "--no-color" ];
+	var childArgs = [ "diff", "--no-color", "--ignore-blank-lines" ];
 	if ( args ) {
 		childArgs = childArgs.concat( args.split( /\s/ ) );
-	}
-
+  }
+  
 	var child = spawn( "git", childArgs );
 
 	child.stdout.on( "data", function( chunk ) {
